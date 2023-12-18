@@ -119,3 +119,11 @@ li.clickable:hover{
 .file-list :last-child {
   margin-left: auto;
 }
+
+input {
+  padding: 10px;
+  border: 0;
+  border-radius: 5px;
+  font-size: 16px;
+  outline: none;
+}
