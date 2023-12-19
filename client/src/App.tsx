@@ -15,8 +15,8 @@ const App = () => {
     if (!filesToUpload.length) return;
     try {
       const formData = new FormData();
-      filesToUpload.forEach((file, index) => {
-        formData.append(`file[]`, file);
+      filesToUpload.forEach((file) => {
+        formData.append(`files`, file);
       });
       await fetch(`${API_URL}/upload`, {
         method: "POST",
