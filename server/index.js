@@ -5,80 +5,73 @@ const fs = require('fs');
 const cors = require('cors');
 const crypto = require('crypto')
 
+const EncryptionService = require('./src/services/EncryptionService')
+const FileService = require('./src/services/FileService')
+
 const app = express();
 const port = 3000;
-const algorithm = 'aes-256-cbc'
-const key = crypto.scryptSync('super strong password', 'salt', 32)
+const key = crypto.scryptSync('super strong password', 'salt', 32);
+
+const encryptionService = new EncryptionService(key);
+const fileService = new FileService(path.join(__dirname, 'uploads'), encryptionService);
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, 'uploads'));
+    cb(null, fileService.uploadDirectory);
   },
   filename: (req, file, cb) => {
     cb(null, Date.now() + path.extname(file.originalname));
   },
 });
 
-const encrypt = (buffer) => {
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(algorithm, key, iv)
-  return Buffer.concat([iv, cipher.update(buffer)]);
-}
-
-const decrypt = (encrypted) => {
-  const iv = encrypted.slice(0, 16);
-  const encryptedRest = encrypted.slice(16);
-  const decipher = crypto.createDecipheriv(algorithm, key, iv);
-  return Buffer.from(decipher.update(encryptedRest));
-}
-
 const upload = multer({ storage });
 
 app.use(cors());
 app.use('/uploads', express.static('uploads'));
 
-app.get('/files', (req, res) => {
-  fs.readdir(path.join(__dirname, 'uploads'), (err, data) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Failed to read files' });
-    }
+app.get('/files', async (req, res) => {
+  try {
+    const files = await fileService.getAllFiles();
+    res.json({ files });
+  } catch (error) {
+    res.status(500).json({ error });
+  }
 
-    res.json({ files: data });
-  })
 })
 
-app.get('/file/:filename', (req, res) => {
+app.get('/file/:filename', async (req, res) => {
   const { filename } = req.params
-  const filePath = path.join(__dirname, 'uploads', filename);
-  const fileBuffer = fs.readFileSync(filePath);
-  const decryptedBuffer = decrypt(fileBuffer);
-  res.end(decryptedBuffer);
+  try {
+    const encryptedBuffer = await fileService.readFile(filename);
+    const decryptedBuffer = encryptionService.decrypt(encryptedBuffer);
+    res.end(decryptedBuffer);
+  } catch (error) {
+    res.status(500).json({ error });
+  }
 })
 
-app.post('/upload', upload.array('files'), (req, res) => {
-  req.files.forEach((file) => {
-    const outputFilePath = path.join(__dirname, 'uploads', file.filename);
-
-    const fileBuffer = fs.readFileSync(file.path);
-    const encryptedBuffer = encrypt(fileBuffer);
-
-    fs.writeFileSync(outputFilePath, encryptedBuffer);
-  });
-
-  res.json({ message: 'Files uploaded successfully!' });
+app.post('/upload', upload.array('files'), async (req, res) => {
+  try {
+    for (const file of req.files) {
+      const fileBuffer = fs.readFileSync(file.path);
+      const encryptedBuffer = encryptionService.encrypt(fileBuffer);
+      await fileService.writeFile(file.filename, encryptedBuffer);
+    }
+    res.json({ message: 'Files uploaded successfully!' });
+  } catch (error) {
+    res.status(500).json({ error });
+  }
 });
 
 
-app.delete('/delete/:filename', (req, res) => {
+app.delete('/delete/:filename', async (req, res) => {
   const filename = req.params.filename;
-  const filePath = path.join(__dirname, 'uploads', filename);
 
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
+  try {
+    await fileService.deleteFile(filename);
     res.json({ message: 'File deleted successfully!' });
-  } else {
-    res.status(404).json({ message: 'File not found.' });
+  } catch (error) {
+    res.status(500).json({ error });
   }
 });
 
